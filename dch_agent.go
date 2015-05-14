@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
+	//"log"
 	"net"
 	"os"
 	//"regexp"
@@ -45,47 +45,6 @@ var (
 		"0\r\n"
 )
 
-//func SendRoutine(cs chan bool)
-func SendRoutine() {
-
-	tcpaddr, err := net.ResolveTCPAddr("tcp", urlip)
-	if checkError(err, "Agent ResolveTCPAddr") {
-		os.Exit(0)
-	}
-
-RECONNECT:
-	conn, err := net.DialTCP("tcp", nil, tcpaddr)
-	defer conn.Close() // close when leave the loop
-	if checkError(err, "Agent DialTCP") {
-		goto RECONNECT
-	}
-
-	fmt.Println("App TCP Connect ... ")
-
-	_, err = conn.Write([]byte(post_msg))
-	log.Printf("Agent write:\n%s", post_msg)
-	if checkError(err, "Agent Write") {
-		goto RECONNECT
-	}
-
-	for {
-		echo := GetMessage(conn)
-		if echo == "" {
-			fmt.Println("echo empty")
-			break
-		}
-		println("receive success")
-		SendMessage(conn, version_response)
-		println("sendEcho")
-	}
-
-	fmt.Println("SendRoutine Exist")
-}
-
-func parseGet(msg string) int {
-	return 1
-}
-
 func main() {
 	fmt.Println("Agent Start to connect ... ")
 	go SendRoutine()
@@ -96,25 +55,78 @@ func main() {
 
 }
 
+//func SendRoutine(cs chan bool)
+func SendRoutine() {
+	connNum := 0
+	tcpaddr, err := net.ResolveTCPAddr("tcp", urlip)
+	if checkError(err, "Agent ResolveTCPAddr") {
+		os.Exit(0)
+	}
+
+RECONNECT:
+	conn, err := net.DialTCP("tcp", nil, tcpaddr)
+	defer closeConn(conn)
+
+	if checkError(err, "Agent DialTCP") {
+		goto RECONNECT
+	}
+	connNum = connNum + 1
+	fmt.Println("Agent TCP Connect ... ")
+
+	_, err = conn.Write([]byte(post_msg))
+
+	if checkError(err, "Agent Write") {
+		goto RECONNECT
+	}
+
+	fmt.Println("Agent Write did & hash")
+
+	for {
+		readMsg := GetMessage(conn)
+		if readMsg == "" {
+			fmt.Println("echo empty")
+			continue
+		}
+
+		if readMsg == "EOF" {
+			fmt.Println("Disconnected")
+			break
+		}
+
+		fmt.Println("Recieved msg = ", readMsg)
+		SendMessage(conn, version_response)
+	}
+
+	fmt.Println("SendRoutine Exist")
+}
+
+func parseGet(msg string) int {
+	return 1
+}
+
 func GetMessage(conn *net.TCPConn) string {
+	//fmt.Println("Prepare GetMessage ...")
 	buf_recever := make([]byte, RECV_BUF_LEN)
-	//conn.SetReadDeadline(time.Time{})
+	//conn.SetReadDeadline (time.Time{})
 	n, err := conn.Read(buf_recever)
 	if err != nil {
 		if err != io.EOF {
 			println("Error while receive response:", err.Error())
 			fmt.Println("Get Message Error")
 			return ""
+		} else {
+			return "EOF"
 		}
+
 	}
 
-	echodata := make([]byte, n)
-	copy(echodata, buf_recever)
-	fmt.Println("App recieve message:%s", string(echodata))
-	return string(echodata)
+	read_data := make([]byte, n)
+	copy(read_data, buf_recever)
+	return string(read_data)
 }
 
 func SendMessage(conn *net.TCPConn, msg string) {
+	fmt.Println("Prepare SendMessage ...")
 	_, err := conn.Write([]byte(msg))
 	if err != nil {
 		println("Error send request:", err.Error())
@@ -123,27 +135,17 @@ func SendMessage(conn *net.TCPConn, msg string) {
 	}
 }
 
+func closeConn(c *net.TCPConn) {
+	fmt.Println("connection close")
+	c.Close()
+}
+
 func checkError(err error, act string) bool {
 
 	if err != nil {
 		fmt.Println(act + " Error Occur!")
 		fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
 		return true
-	}
-	//fmt.Println(act + " no Error")
-	return false
-}
-
-func checkReadError(err error, act string) bool {
-
-	if err != nil {
-		if err != io.EOF {
-			fmt.Println(act + " Error Occur!")
-			fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
-			return true
-		} else {
-			fmt.Println("EOF")
-		}
 	}
 	//fmt.Println(act + " no Error")
 	return false
