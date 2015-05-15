@@ -5,6 +5,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	//"regexp"
@@ -50,14 +52,20 @@ var (
 )
 
 func main() {
-	log.Println("Agent Start to connect ... ")
-	go AutoGC()
+	runtime.SetBlockProfileRate(1)
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
-	go deviceRoutine(did_list[0], did_list[0])
+	log.Println("Agent Start to connect ... ")
+	//go AutoGC()
+
+	deviceRoutine(did_list[0], did_list[0])
 
 	for {
 		time.Sleep(time.Second * 2)
 	}
+	//printMemory()
 
 	log.Println("Program is going to exit")
 
@@ -76,11 +84,11 @@ func deviceRoutine(did string, hash string) {
 		os.Exit(0)
 	}
 
-	var conn *net.TCPConn
+	//var conn *net.TCPConn
 
 	for {
 
-		conn, err = net.DialTCP("tcp", nil, tcpaddr)
+		conn, err := net.DialTCP("tcp", nil, tcpaddr)
 
 		if checkError(err, "Agent DialTCP") {
 			continue
@@ -93,24 +101,9 @@ func deviceRoutine(did string, hash string) {
 		if checkError(err, "Agent Write") {
 			continue
 		}
-		c := make(chan bool)
 
-		go contiRead(conn, connction_id, c)
-
-		<-c
-
-		log.Println("recieve msg go next round")
-
-	}
-	//defer closeConn(conn)
-	closeConn(conn)
-	log.Println("SendRoutine Exit")
-}
-
-func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
-	//var read_msg string
-	for {
-		read_msg, get_err := GetMessage(conn)
+		buf := make([]byte, RECV_BUF_LEN)
+		_, get_err := GetMessage(conn, buf)
 
 		if get_err != nil {
 			if get_err == io.EOF {
@@ -122,10 +115,46 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 			}
 		}
 
-		cs <- true
+		//c := make(chan bool)
+
+		go contiRead(conn, connction_id)
+
+		//<-c
+		//printMemory()
+		log.Println("recieve msg go next round")
+
+	}
+	//defer closeConn(conn)
+	printMemory()
+	//closeConn(conn)
+	log.Println("SendRoutine Exit")
+}
+
+func contiRead(conn *net.TCPConn, connid int) {
+	//var read_msg string
+	buf_recever := make([]byte, RECV_BUF_LEN)
+	var read_msg string
+	var get_err error
+
+	for {
+		read_msg, get_err = GetMessage(conn, buf_recever)
+
+		if get_err != nil {
+			if get_err == io.EOF {
+				log.Println("Disconnected")
+				break
+			} else {
+				log.Println("error")
+				continue
+			}
+		}
+
+		//cs <- true
 		log.Println("Recieved msg = ", read_msg)
 		SendMessage(conn, version_response)
 	}
+	conn.Close()
+	printMemory()
 	log.Println("Exist contiRead: ", strconv.Itoa(connid))
 }
 
@@ -143,15 +172,14 @@ func AutoGC() {
 	}
 }
 
-func GetMessage(conn *net.TCPConn) (string, error) {
+func GetMessage(conn *net.TCPConn, buf []byte) (string, error) {
 	//fmt.Println("Prepare GetMessage ...")
-	buf_recever := make([]byte, RECV_BUF_LEN)
 	//conn.SetReadDeadline (time.Time{})
-	n, err := conn.Read(buf_recever)
+	n, err := conn.Read(buf)
 
-	read_data := make([]byte, n)
-	copy(read_data, buf_recever)
-	return string(read_data), err
+	//read_data := make([]byte, n)
+	//copy(read_data, buf_recever)
+	return string(buf[0:n]), err
 }
 
 func SendMessage(conn *net.TCPConn, msg string) {
@@ -179,4 +207,14 @@ func checkError(err error, act string) bool {
 	}
 	//fmt.Println(act + " no Error")
 	return false
+}
+
+func printMemory() {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	log.Println("Memory Usage")
+	log.Println("Alloc : ", mem.Alloc)
+	log.Println("Total Alloc : ", mem.TotalAlloc)
+	log.Println("HeapAlloc : ", mem.HeapAlloc)
+	log.Println("HeapSys : ", mem.HeapSys)
 }
