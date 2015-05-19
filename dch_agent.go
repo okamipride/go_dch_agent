@@ -1,14 +1,15 @@
 package main
 
 import (
-	//"fmt"
+	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
-	"strconv"
-	//"regexp"
+	"regexp"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -18,20 +19,21 @@ const (
 )
 
 type Device struct {
-	procid   int
 	usr_did  string
 	usr_hash string
 }
 
-var did_list = [5]string{
-	"12345678901234567890123456789001",
-	"12345678901234567890123456789002",
-	"12345678901234567890123456789003",
-	"12345678901234567890123456789004",
-	"12345678901234567890123456789005"}
+var did_prefix = "1234567890" + "1234567890"
 
+//12345678901234567890000000000001
 var (
-	urlip            = "52.68.172.23:80"
+	url = "r0401.dch.dlink.com:80"
+	//url       = "r0101.dch.dlink.com:80"
+	resp_data = "\"status\":\"ok\"," +
+		"\"errno\":\"\"," +
+		"\"errmsg\":\"\"," +
+		"\"version\":\"1.0.1\"," +
+		"\"detail\":\"70b3852=2015-04-30 11:45:58 +80800\"\r\n"
 	version_response = "HTTP/1.1 200 OK\r\n" + "Server: Spaced/0.1\r\n" +
 		"Transfer-Encoding: chunked\r\n" +
 		"Content-Type: application/javascript; charset=utf-8\r\n" +
@@ -39,11 +41,7 @@ var (
 		"1\r\n" +
 		"{\r\n" +
 		"64\r\n" +
-		"\"status\":\"ok\"," +
-		"\"errno\":\"\"," +
-		"\"errmsg\":\"\"," +
-		"\"version\":\"1.0.1\"," +
-		"\"detail\":\"70b3852=2015-04-30 11:45:58 +80800\"\r\n" +
+		resp_data +
 		"1\r\n" +
 		"}\r\n" +
 		"0\r\n"
@@ -51,9 +49,13 @@ var (
 
 func main() {
 	log.Println("Agent Start to connect ... ")
+	num_dev := readNumDevice()
 	go AutoGC()
 
-	go deviceRoutine(did_list[0], did_list[0])
+	for i := int64(1); i <= num_dev; i++ {
+		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
+		go device.deviceRoutine()
+	}
 
 	for {
 		time.Sleep(time.Second * 2)
@@ -63,14 +65,18 @@ func main() {
 
 }
 
-//func SendRoutine(cs chan bool)
-func deviceRoutine(did string, hash string) {
+func genDid(num int64) string {
+	return did_prefix + fmt.Sprintf("%012x", num)
+}
 
-	post_msg := "POST /connect HTTP/1.1\r\n\r\n" + "\"did\":\"" + did + "\"" +
-		"\r\n" + "\"hash\":\"" + hash + "\"" + "\r\n"
+//func SendRoutine(cs chan bool)
+func (dev *Device) deviceRoutine() {
+
+	post_msg := "POST /connect HTTP/1.1\r\n\r\n" + "\"did\":\"" + dev.usr_did + "\"" +
+		"\r\n" + "\"hash\":\"" + dev.usr_hash + "\"" + "\r\n"
 
 	connction_id := 0
-	tcpaddr, err := net.ResolveTCPAddr("tcp", urlip)
+	tcpaddr, err := net.ResolveTCPAddr("tcp", url)
 
 	if checkError(err, "Agent ResolveTCPAddr") {
 		os.Exit(0)
@@ -85,14 +91,16 @@ func deviceRoutine(did string, hash string) {
 		if checkError(err, "Agent DialTCP") {
 			continue
 		}
+
 		connction_id = connction_id + 1
-		log.Println("Agent TCP Connect ... ", strconv.Itoa(connction_id))
+		//log.Println("Agent TCP Connect ... ", strconv.Itoa(connction_id))
 
 		_, err = conn.Write([]byte(post_msg))
 
 		if checkError(err, "Agent Write") {
 			continue
 		}
+
 		c := make(chan bool)
 
 		go contiRead(conn, connction_id, c)
@@ -102,18 +110,19 @@ func deviceRoutine(did string, hash string) {
 		log.Println("recieve msg go next round")
 
 	}
-	//defer closeConn(conn)
-	closeConn(conn)
-	log.Println("SendRoutine Exit")
+	//closeConn(conn)
+	//log.Println("SendRoutine Exit")
 }
 
 func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 	//var read_msg string
 	for {
-		read_msg, get_err := GetMessage(conn)
 
-		if get_err != nil {
-			if get_err == io.EOF {
+		buf_recever := make([]byte, RECV_BUF_LEN)
+		_, err := conn.Read(buf_recever)
+
+		if err != nil {
+			if err == io.EOF {
 				log.Println("Disconnected")
 				break
 			} else {
@@ -121,11 +130,14 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 				continue
 			}
 		}
-
 		cs <- true
-		log.Println("Recieved msg = ", read_msg)
 		SendMessage(conn, version_response)
+
+		//log.Println("Recieved msg = ", string(buf_recever[0:n]))
+
 	}
+
+	defer closeConn(conn)
 	log.Println("Exist contiRead: ", strconv.Itoa(connid))
 }
 
@@ -139,19 +151,7 @@ func AutoGC() {
 		runtime.GC()
 		//fmt.Println("Auto GC")
 		time.Sleep(1 * time.Second)
-
 	}
-}
-
-func GetMessage(conn *net.TCPConn) (string, error) {
-	//fmt.Println("Prepare GetMessage ...")
-	buf_recever := make([]byte, RECV_BUF_LEN)
-	//conn.SetReadDeadline (time.Time{})
-	n, err := conn.Read(buf_recever)
-
-	read_data := make([]byte, n)
-	copy(read_data, buf_recever)
-	return string(read_data), err
 }
 
 func SendMessage(conn *net.TCPConn, msg string) {
@@ -179,4 +179,43 @@ func checkError(err error, act string) bool {
 	}
 	//fmt.Println(act + " no Error")
 	return false
+}
+
+func readNumDevice() int64 {
+	var num_did int64 = 0
+
+	for {
+		consolereader := bufio.NewReader(os.Stdin)
+		fmt.Print("Enter Number of Devices: ")
+		input, err := consolereader.ReadString('\n') // this will prompt the user for input
+
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println("ReadString error! Retry again")
+			continue
+		}
+		reg, _ := regexp.Compile("^[1-9][0-9]*") // Remove special character only take digits
+		num := reg.FindString(input)
+
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println("ReadString error! Please enter digits")
+			continue
+		}
+
+		fmt.Println(string(num))
+
+		num_devices, err := strconv.ParseInt(string(num), 0, 64)
+
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println("Convert Number failed! Please re-enter")
+			continue
+		}
+		num_did = num_devices
+		break
+		//return num_devices
+	}
+
+	return num_did
 }
