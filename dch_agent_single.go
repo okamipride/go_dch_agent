@@ -35,35 +35,26 @@ var (
 		"\"errmsg\":\"\"," +
 		"\"version\":\"1.0.1\"," +
 		"\"detail\":\"70b3852=2015-04-30 11:45:58 +80800\"\r\n"
-		/*
-			version_response = "HTTP/1.1 200 OK\r\n" + "Server: Spaced/0.1\r\n" +
-				"Transfer-Encoding: chunked\r\n" +
-				"Content-Type: application/javascript; charset=utf-8\r\n" +
-				"Connection: close\r\n\r\n" +
-				"1\r\n" +
-				"{\r\n" +
-				"64\r\n" +
-				resp_data +
-				"1\r\n" +
-				"}\r\n" +
-				"0\r\n"
-		*/
+	/*
+		version_response = "HTTP/1.1 200 OK\r\n" + "Server: Spaced/0.1\r\n" +
+			"Transfer-Encoding: chunked\r\n" +
+			"Content-Type: application/javascript; charset=utf-8\r\n" +
+			"Connection: close\r\n\r\n" +
+			"1\r\n" +
+			"{\r\n" +
+			"64\r\n" +
+			resp_data +
+			"1\r\n" +
+			"}\r\n" +
+			"0\r\n"
+	*/
 	version_response = "HTTP/1.1 200 OK\r\nContent-type: text\r\nContent-Length: 2\r\n\r\nOK"
 )
 
 func main() {
 	log.Println("Agent Start to connect ... ")
-	num_dev, num_concurrence := readNumDevice()
-
-	go AutoGC()
-
-	for i := int64(1); i <= num_dev; i++ {
-		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
-		go device.deviceRoutine()
-		if num_dev%num_concurrence == 0 {
-			time.Sleep(DELAY_MS)
-		}
-	}
+	device := Device{usr_did: genDid(1), usr_hash: genDid(1)}
+	device.deviceRoutine()
 
 	for {
 		time.Sleep(time.Second * 2)
@@ -108,17 +99,32 @@ func (dev *Device) deviceRoutine() {
 			continue
 		}
 
-		c := make(chan bool)
+		singleRead(conn)
 
-		go contiRead(conn, connction_id, c)
+		/*
+			c := make(chan bool)
 
-		<-c
+			go contiRead(conn, connction_id, c)
+
+			<-c
+		*/
 
 		log.Println("recieve msg go next round")
 
 	}
 	//closeConn(conn)
 	//log.Println("SendRoutine Exit")
+}
+
+func singleRead(conn *net.TCPConn) {
+	buf_recever := make([]byte, RECV_BUF_LEN)
+	n, err := conn.Read(buf_recever)
+	if err != nil {
+		log.Println("error = ", err)
+	}
+	log.Println("recieve = ", buf_recever[0:n])
+	SendMessage(conn, version_response)
+
 }
 
 func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
@@ -144,7 +150,7 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 
 	}
 
-	defer closeConn(conn)
+	//defer closeConn(conn)
 	log.Println("Exist contiRead: ", strconv.Itoa(connid))
 }
 
@@ -169,6 +175,7 @@ func SendMessage(conn *net.TCPConn, msg string) {
 	} else {
 		println("Request sent")
 	}
+	closeConn(conn)
 }
 
 func closeConn(c *net.TCPConn) {

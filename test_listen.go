@@ -86,6 +86,7 @@ func (dev *Device) deviceRoutine() {
 
 	conn, err = net.DialTCP("tcp", nil, tcpaddr)
 	conn.SetKeepAlive(true)
+
 	if checkError(err, "Agent DialTCP") {
 		return
 	}
@@ -99,20 +100,24 @@ func (dev *Device) deviceRoutine() {
 		return
 	}
 
-	buf_recever := make([]byte, RECV_BUF_LEN)
-	_, err = conn.Read(buf_recever)
+	for {
 
-	if err != nil {
-		if err == io.EOF {
-			log.Println("Disconnected")
-			closeConn(conn)
-			return
-		} else {
-			log.Println("Read error", err)
-			closeConn(conn)
-			return
+		buf_recever := make([]byte, RECV_BUF_LEN)
+		_, err := conn.Read(buf_recever)
+
+		if err != nil {
+			if err == io.EOF {
+				log.Println("Disconnected")
+				break
+			} else {
+				log.Println("error", err.Error())
+				continue
+			}
 		}
+		SendMessage(conn, version_response)
+		//log.Println("Recieved msg = ", string(buf_recever[0:n]))
 	}
+
 	closeConn(conn)
 	log.Println("Read & connection closed")
 
