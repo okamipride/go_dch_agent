@@ -24,7 +24,7 @@ type Device struct {
 }
 
 var did_prefix string = "1234567890" + "1234567890"
-var DELAY_MS = 100 * time.Millisecond
+var DELAY_MS = 50 * time.Millisecond
 
 //12345678901234567890000000000001
 var (
@@ -53,15 +53,16 @@ var (
 
 func main() {
 	log.Println("Agent Start to connect ... ")
-	num_dev, num_concurrence := readNumDevice()
+	num_dev, num_concurrence, my_delay := readNumDevice()
 
 	go AutoGC()
 
 	for i := int64(1); i <= num_dev; i++ {
+		//log.Println("delay time")
 		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
 		go device.deviceRoutine()
 		if num_dev%num_concurrence == 0 {
-			time.Sleep(DELAY_MS)
+			time.Sleep(my_delay)
 		}
 	}
 
@@ -105,6 +106,7 @@ func (dev *Device) deviceRoutine() {
 		_, err = conn.Write([]byte(post_msg))
 
 		if checkError(err, "Agent Write") {
+			closeConn(conn)
 			continue
 		}
 
@@ -130,18 +132,15 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 
 		if err != nil {
 			if err == io.EOF {
-				log.Println("Disconnected")
+				log.Println("EOF:Disconnected")
 				break
 			} else {
-				log.Println("error")
+				log.Println("ContiRead Error = ", err)
 				continue
 			}
 		}
 		cs <- true
 		SendMessage(conn, version_response)
-
-		//log.Println("Recieved msg = ", string(buf_recever[0:n]))
-
 	}
 
 	defer closeConn(conn)
@@ -188,9 +187,10 @@ func checkError(err error, act string) bool {
 	return false
 }
 
-func readNumDevice() (int64, int64) {
+func readNumDevice() (int64, int64, time.Duration) {
 	var num_did int64 = 0
 	var num_concur int64 = 0
+	var delay time.Duration = 100 * time.Millisecond
 
 	for {
 		// Number of devices connect to relayd
@@ -236,7 +236,26 @@ func readNumDevice() (int64, int64) {
 			num_concur = num_did
 		}
 
+		// Number of devices connect to relayd continousely without delay
+		log.Print("Enter delay ms: ")
+		input, err = consolereader.ReadString('\n')
+
+		if err != nil {
+			log.Println("ReadString error! Use 100ms. error = ", err)
+			delay = 100 * time.Millisecond
+		}
+
+		delayStr := reg.FindString(input)
+		ms, err := strconv.ParseInt(string(delayStr), 0, 64)
+
+		if err != nil {
+			log.Println("ReadString error! Use 100ms,  error = ", err)
+			delay = 100 * time.Millisecond
+		}
+
+		delay = time.Duration(ms) * time.Millisecond
+
 		break
 	}
-	return num_did, num_concur
+	return num_did, num_concur, delay
 }
