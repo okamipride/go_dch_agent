@@ -28,7 +28,7 @@ var DELAY_MS = 50 * time.Millisecond
 
 //12345678901234567890000000000001
 var (
-	url = "r0401.dch.dlink.com:80"
+	url = "172.31.7.0:80"
 	//url       = "r0101.dch.dlink.com:80"
 	resp_data = "\"status\":\"ok\"," +
 		"\"errno\":\"\"," +
@@ -55,7 +55,7 @@ func main() {
 	log.Println("Agent Start to connect ... ")
 	num_dev, num_concurrence, my_delay := readNumDevice()
 
-	go AutoGC()
+	//go AutoGC()
 
 	for i := int64(1); i <= num_dev; i++ {
 		//log.Println("delay time")
@@ -80,54 +80,49 @@ func genDid(num int64) string {
 
 //func SendRoutine(cs chan bool)
 func (dev *Device) deviceRoutine() {
-
 	post_msg := "POST /connect HTTP/1.1\r\n\r\n" + "\"did\":\"" + dev.usr_did + "\"" +
 		"\r\n" + "\"hash\":\"" + dev.usr_hash + "\"" + "\r\n"
 
-	connction_id := 0
 	tcpaddr, err := net.ResolveTCPAddr("tcp", url)
 
-	if checkError(err, "Agent ResolveTCPAddr") {
-		os.Exit(0)
+	conn, err := net.DialTCP("tcp", nil, tcpaddr)
+
+	if err != nil {
+		return // retry escape
 	}
 
-	var conn *net.TCPConn
+	first := make([]byte, 1)
+	buf := make([]byte, 1024*32)
+	n, err := conn.Read(first)
+
+	defer closeConn(conn)
+
+	if err == io.EOF {
+		return
+	}
+
+	go dev.deviceRoutine()
+
+	println(string(buf[0:n]))
 
 	for {
-
-		conn, err = net.DialTCP("tcp", nil, tcpaddr)
-
-		if checkError(err, "Agent DialTCP") {
-			continue
+		n, err := conn.Read(buf)
+		if err == io.EOF {
+			return
 		}
-
-		connction_id = connction_id + 1
-
-		_, err = conn.Write([]byte(post_msg))
-
-		if checkError(err, "Agent Write") {
-			closeConn(conn)
-			continue
+		if n > 0 {
+			println(string(buf[0:n]))
 		}
-
-		c := make(chan bool)
-
-		go contiRead(conn, connction_id, c)
-
-		<-c
-
-		log.Println("recieve msg go next round")
-
 	}
-	//closeConn(conn)
-	//log.Println("SendRoutine Exit")
+
+	SendMessage(conn, post_msg)
+
 }
 
 func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 	//var read_msg string
+	buf_recever := make([]byte, RECV_BUF_LEN)
 	for {
-
-		buf_recever := make([]byte, RECV_BUF_LEN)
 		_, err := conn.Read(buf_recever)
 
 		if err != nil {
