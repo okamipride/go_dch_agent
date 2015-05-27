@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -28,8 +29,13 @@ var DELAY_MS = 50 * time.Millisecond
 
 //12345678901234567890000000000001
 var (
-	url = "172.31.7.0:80"
-	//url       = "r0101.dch.dlink.com:80"
+	//url = "172.31.4.183:80"
+
+	//url = "172.31.13.171:80"
+	//url = "52.68.253.9"
+	url = "r0402.dch.dlink.com:80"
+	//url = "r0101.dch.dlink.com:80"
+	//url       = "52.68.198.236:80"
 	resp_data = "\"status\":\"ok\"," +
 		"\"errno\":\"\"," +
 		"\"errmsg\":\"\"," +
@@ -53,12 +59,21 @@ var (
 
 func main() {
 	log.Println("Agent Start to connect ... ")
-	num_dev, num_concurrence, my_delay := readNumDevice()
+
+	relay_url, num_dev := readArg()
+
+	num_concurrence := int64(1)
+	var my_delay time.Duration = 10 * time.Millisecond
+	//relay_url, num_dev, num_concurrence, my_delay := readNumDevice()
+
+	if relay_url != "" {
+		url = relay_url + ":80"
+
+	}
 
 	//go AutoGC()
 
 	for i := int64(1); i <= num_dev; i++ {
-		//log.Println("delay time")
 		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
 		go device.deviceRoutine()
 		if num_dev%num_concurrence == 0 {
@@ -84,20 +99,31 @@ func (dev *Device) deviceRoutine() {
 		"\r\n" + "\"hash\":\"" + dev.usr_hash + "\"" + "\r\n"
 
 	tcpaddr, err := net.ResolveTCPAddr("tcp", url)
+	if err != nil {
+		log.Println("error", err)
+		log.Println("url = ", url)
+		return // retry escape
+	}
 
 	conn, err := net.DialTCP("tcp", nil, tcpaddr)
 
 	if err != nil {
+		log.Println("connect error", err, "url = ", url)
 		return // retry escape
 	}
+	log.Println("Connected to : " + url)
 
-	first := make([]byte, 1)
-	buf := make([]byte, 1024*32)
-	n, err := conn.Read(first)
+	conn.Write([]byte(post_msg))
 
 	defer closeConn(conn)
 
+	first := make([]byte, 1)
+	buf := make([]byte, 1024*32)
+
+	n, err := conn.Read(first)
+
 	if err == io.EOF {
+		log.Println("Read EOF")
 		return
 	}
 
@@ -108,14 +134,14 @@ func (dev *Device) deviceRoutine() {
 	for {
 		n, err := conn.Read(buf)
 		if err == io.EOF {
+			log.Println("Read EOF")
 			return
 		}
 		if n > 0 {
-			println(string(buf[0:n]))
+			SendMessage(conn, version_response)
+			log.Println(string(buf[0:n]))
 		}
 	}
-
-	SendMessage(conn, post_msg)
 
 }
 
@@ -159,9 +185,9 @@ func SendMessage(conn *net.TCPConn, msg string) {
 	log.Println("Prepare SendMessage ...")
 	_, err := conn.Write([]byte(msg))
 	if err != nil {
-		println("Error send request:", err.Error())
+		log.Println("Error send request:", err.Error())
 	} else {
-		println("Request sent")
+		log.Println("Request sent")
 	}
 }
 
@@ -182,7 +208,25 @@ func checkError(err error, act string) bool {
 	return false
 }
 
-func readNumDevice() (int64, int64, time.Duration) {
+func readArg() (string, int64) {
+
+	serverPtr := flag.String("serv", "r0401.dch.dlink.com", "relay server address , no port included")
+	//serverPtr := flag.String("serv", "172.31.4.183:80", "relay server address , no port included")
+	devPtr := flag.Int64("dev", 1, "number of devices want to connect to relay server")
+
+	var svar string
+	flag.StringVar(&svar, "svar", "bar", "command line arguments")
+	flag.Parse()
+	fmt.Println("serverPtr:", *serverPtr)
+	fmt.Println("devPtr:", *devPtr)
+	fmt.Println("tail:", flag.Args())
+
+	return *serverPtr, *devPtr
+
+}
+
+func readNumDevice() (string, int64, int64, time.Duration) {
+	var relay_addr = ""
 	var num_did int64 = 0
 	var num_concur int64 = 0
 	var delay time.Duration = 100 * time.Millisecond
@@ -190,13 +234,26 @@ func readNumDevice() (int64, int64, time.Duration) {
 	for {
 		// Number of devices connect to relayd
 		consolereader := bufio.NewReader(os.Stdin)
-		log.Print("Enter Number of Devices: ")
+
+		log.Print("Enter Relay Server Address : ")
 		input, err := consolereader.ReadString('\n')
+
+		reg, _ := regexp.Compile("^[a-zA-Z0-9.]*$") // only alphanumeric and dot
+
 		if err != nil {
 			log.Println("ReadString error! Retry again = ", err)
 			continue
 		}
-		reg, _ := regexp.Compile("^[1-9][0-9]*") // Remove special character only take digits
+
+		relay_addr = reg.FindString(input)
+
+		log.Print("Enter Number of Devices: ")
+		input, err = consolereader.ReadString('\n')
+		if err != nil {
+			log.Println("ReadString error! Retry again = ", err)
+			continue
+		}
+		reg, _ = regexp.Compile("^[1-9][0-9]*") // Remove special character only take digits
 		num := reg.FindString(input)
 
 		if err != nil {
@@ -252,5 +309,5 @@ func readNumDevice() (int64, int64, time.Duration) {
 
 		break
 	}
-	return num_did, num_concur, delay
+	return relay_addr, num_did, num_concur, delay
 }
