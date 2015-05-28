@@ -60,10 +60,8 @@ var (
 func main() {
 	log.Println("Agent Start to connect ... ")
 
-	relay_url, num_dev := readArg()
-
-	num_concurrence := int64(1)
-	var my_delay time.Duration = 10 * time.Millisecond
+	relay_url, num_dev, num_concurrence, delay_int := readArg()
+	var my_delay time.Duration = time.Duration(delay_int) * time.Millisecond
 	//relay_url, num_dev, num_concurrence, my_delay := readNumDevice()
 
 	if relay_url != "" {
@@ -76,7 +74,7 @@ func main() {
 	for i := int64(1); i <= num_dev; i++ {
 		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
 		go device.deviceRoutine()
-		if num_dev%num_concurrence == 0 {
+		if i%num_concurrence == 0 {
 			time.Sleep(my_delay)
 		}
 	}
@@ -112,7 +110,7 @@ func (dev *Device) deviceRoutine() {
 		log.Println("connect error", err, "url = ", url)
 		return // retry escape
 	}
-	log.Println(dev.usr_did, " Connected to : "+url)
+	fmt.Printf(" %s %s ", dev.usr_did[27:32], "Connected")
 
 	conn.Write([]byte(post_msg))
 
@@ -139,8 +137,16 @@ func (dev *Device) deviceRoutine() {
 			return
 		}
 		if n > 0 {
+			//	log.Println(string(buf[0:n]))
+
+			_, err := conn.Write([]byte(version_response))
+			if err != nil {
+				log.Println(dev.usr_did, " Error send request:", err.Error())
+			} else {
+				log.Println(dev.usr_did, " Response sent")
+			}
 			SendMessage(conn, version_response, dev.usr_did)
-			//log.Println(string(buf[0:n]))
+			//
 		}
 	}
 
@@ -170,6 +176,7 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 	log.Println("Exist contiRead: ", strconv.Itoa(connid))
 }
 */
+
 func parseGet(msg string) int {
 	return 1
 }
@@ -210,20 +217,24 @@ func checkError(err error, act string) bool {
 	return false
 }
 
-func readArg() (string, int64) {
+func readArg() (string, int64, int64, int64) {
 
-	serverPtr := flag.String("serv", "r0401.dch.dlink.com", "relay server address , no port included")
+	serverPtr := flag.String("serv", "r0402.dch.dlink.com", "relay server address , no port included")
 	//serverPtr := flag.String("serv", "172.31.4.183:80", "relay server address , no port included")
 	devPtr := flag.Int64("dev", 1, "number of devices want to connect to relay server")
+	concurPtr := flag.Int64("concur", 1, "Concurrent send without delay")
+	delayPtr := flag.Int64("delay", 10, "Delay between concurrent send")
 
 	var svar string
 	flag.StringVar(&svar, "svar", "bar", "command line arguments")
 	flag.Parse()
-	fmt.Println("serverPtr:", *serverPtr)
-	fmt.Println("devPtr:", *devPtr)
+	fmt.Println("server:", *serverPtr)
+	fmt.Println("dev:", *devPtr)
+	fmt.Println("concurrent:", *concurPtr)
+	fmt.Println("delay:", *delayPtr)
 	fmt.Println("tail:", flag.Args())
 
-	return *serverPtr, *devPtr
+	return *serverPtr, *devPtr, *concurPtr, *delayPtr
 
 }
 
