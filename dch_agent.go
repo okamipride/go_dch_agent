@@ -106,12 +106,13 @@ func (dev *Device) deviceRoutine() {
 	}
 
 	conn, err := net.DialTCP("tcp", nil, tcpaddr)
+	conn.SetKeepAlive(true)
 
 	if err != nil {
 		log.Println("connect error", err, "url = ", url)
 		return // retry escape
 	}
-	log.Println("Connected to : " + url)
+	log.Println(dev.usr_did, " Connected to : "+url)
 
 	conn.Write([]byte(post_msg))
 
@@ -123,7 +124,7 @@ func (dev *Device) deviceRoutine() {
 	n, err := conn.Read(first)
 
 	if err == io.EOF {
-		log.Println("Read EOF")
+		log.Println(dev.usr_did, "Read EOF*")
 		return
 	}
 
@@ -134,17 +135,18 @@ func (dev *Device) deviceRoutine() {
 	for {
 		n, err := conn.Read(buf)
 		if err == io.EOF {
-			log.Println("Read EOF")
+			log.Println(dev.usr_did, " Read EOF**")
 			return
 		}
 		if n > 0 {
-			SendMessage(conn, version_response)
-			log.Println(string(buf[0:n]))
+			SendMessage(conn, version_response, dev.usr_did)
+			//log.Println(string(buf[0:n]))
 		}
 	}
 
 }
 
+/*
 func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 	//var read_msg string
 	buf_recever := make([]byte, RECV_BUF_LEN)
@@ -167,7 +169,7 @@ func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
 	defer closeConn(conn)
 	log.Println("Exist contiRead: ", strconv.Itoa(connid))
 }
-
+*/
 func parseGet(msg string) int {
 	return 1
 }
@@ -181,13 +183,13 @@ func AutoGC() {
 	}
 }
 
-func SendMessage(conn *net.TCPConn, msg string) {
-	log.Println("Prepare SendMessage ...")
+func SendMessage(conn *net.TCPConn, msg string, did string) {
+	//log.Println("Prepare SendMessage ...")
 	_, err := conn.Write([]byte(msg))
 	if err != nil {
-		log.Println("Error send request:", err.Error())
+		log.Println(did, " Error send request:", err.Error())
 	} else {
-		log.Println("Request sent")
+		log.Println(did, " Response sent")
 	}
 }
 
