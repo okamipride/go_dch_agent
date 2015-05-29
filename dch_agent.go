@@ -1,16 +1,16 @@
 package main
 
 import (
-	"bufio"
+	//"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"os"
-	"regexp"
+	//"os"
+	//"regexp"
 	"runtime"
-	"strconv"
+	//"strconv"
 	"time"
 )
 
@@ -59,8 +59,7 @@ var (
 
 func main() {
 	log.Println("Agent Start to connect ... ")
-
-	relay_url, num_dev, num_concurrence, delay_int := readArg()
+	relay_url, num_dev, num_concurrence, delay_int, logon := readArg()
 	var my_delay time.Duration = time.Duration(delay_int) * time.Millisecond
 	//relay_url, num_dev, num_concurrence, my_delay := readNumDevice()
 
@@ -73,7 +72,7 @@ func main() {
 
 	for i := int64(1); i <= num_dev; i++ {
 		device := Device{usr_did: genDid(i), usr_hash: genDid(i)}
-		go device.deviceRoutine()
+		go device.deviceRoutine(logon)
 		if i%num_concurrence == 0 {
 			time.Sleep(my_delay)
 		}
@@ -92,15 +91,14 @@ func genDid(num int64) string {
 }
 
 //func SendRoutine(cs chan bool)
-func (dev *Device) deviceRoutine() {
+func (dev *Device) deviceRoutine(loginfo bool) {
 	post_msg := "POST /connect HTTP/1.1\r\n\r\n" + "\"did\":\"" + dev.usr_did + "\"" +
 		"\r\n" + "\"hash\":\"" + dev.usr_hash + "\"" + "\r\n"
 
 	tcpaddr, err := net.ResolveTCPAddr("tcp", url)
 	if err != nil {
-		log.Println("error", err)
-		log.Println("url = ", url)
-		return // retry escape
+		log.Println("error", err, " url=", url)
+		return
 	}
 
 	conn, err := net.DialTCP("tcp", nil, tcpaddr)
@@ -110,7 +108,10 @@ func (dev *Device) deviceRoutine() {
 		log.Println("connect error", err, "url = ", url)
 		return // retry escape
 	}
-	fmt.Printf(" %s %s ", dev.usr_did[27:32], "Connected")
+
+	if loginfo {
+		fmt.Printf(" %s %s ", dev.usr_did[27:32], "Connected")
+	}
 
 	conn.Write([]byte(post_msg))
 
@@ -122,15 +123,20 @@ func (dev *Device) deviceRoutine() {
 	n, err := conn.Read(first)
 
 	if err == io.EOF {
-		log.Println(dev.usr_did, "Read EOF*")
+		if loginfo {
+			log.Println(dev.usr_did, "Read EOF*")
+		}
 		return
 	}
 
-	go dev.deviceRoutine()
+	go dev.deviceRoutine(loginfo)
 
-	println(string(buf[0:n]))
+	if loginfo {
+		fmt.Println(string(first), string(buf[0:n]))
+	}
 
 	for {
+		//net.Conn(*c).SetReadDeadline(time.Now().Add(time.Millisecond * time.Duration(timeout)))
 		n, err := conn.Read(buf)
 		if err == io.EOF {
 			log.Println(dev.usr_did, " Read EOF**")
@@ -138,7 +144,6 @@ func (dev *Device) deviceRoutine() {
 		}
 		if n > 0 {
 			//	log.Println(string(buf[0:n]))
-
 			_, err := conn.Write([]byte(version_response))
 			if err != nil {
 				log.Println(dev.usr_did, " Error send request:", err.Error())
@@ -146,39 +151,9 @@ func (dev *Device) deviceRoutine() {
 				log.Println(dev.usr_did, " Response sent")
 			}
 			SendMessage(conn, version_response, dev.usr_did)
-			//
 		}
 	}
 
-}
-
-/*
-func contiRead(conn *net.TCPConn, connid int, cs chan bool) {
-	//var read_msg string
-	buf_recever := make([]byte, RECV_BUF_LEN)
-	for {
-		_, err := conn.Read(buf_recever)
-
-		if err != nil {
-			if err == io.EOF {
-				log.Println("EOF:Disconnected")
-				break
-			} else {
-				log.Println("ContiRead Error = ", err)
-				continue
-			}
-		}
-		cs <- true
-		SendMessage(conn, version_response)
-	}
-
-	defer closeConn(conn)
-	log.Println("Exist contiRead: ", strconv.Itoa(connid))
-}
-*/
-
-func parseGet(msg string) int {
-	return 1
 }
 
 func AutoGC() {
@@ -191,12 +166,9 @@ func AutoGC() {
 }
 
 func SendMessage(conn *net.TCPConn, msg string, did string) {
-	//log.Println("Prepare SendMessage ...")
 	_, err := conn.Write([]byte(msg))
 	if err != nil {
 		log.Println(did, " Error send request:", err.Error())
-	} else {
-		log.Println(did, " Response sent")
 	}
 }
 
@@ -217,13 +189,22 @@ func checkError(err error, act string) bool {
 	return false
 }
 
-func readArg() (string, int64, int64, int64) {
+/*****
+	command-line argument
+	-serv=r0402.dch.dlink.com
+	-dev=1000 // number of devices
+	-concur // concurrent go routines to connect to server
+	-delay // delay time between 2 go routines
+******/
 
-	serverPtr := flag.String("serv", "r0402.dch.dlink.com", "relay server address , no port included")
+func readArg() (string, int64, int64, int64, bool) {
+
+	serverPtr := flag.String("serv", "r0401.dch.dlink.com", "relay server address , no port included")
 	//serverPtr := flag.String("serv", "172.31.4.183:80", "relay server address , no port included")
 	devPtr := flag.Int64("dev", 1, "number of devices want to connect to relay server")
 	concurPtr := flag.Int64("concur", 1, "Concurrent send without delay")
 	delayPtr := flag.Int64("delay", 10, "Delay between concurrent send")
+	logswitchPtr := flag.Bool("log", false, "turn log on(true) off(false) ")
 
 	var svar string
 	flag.StringVar(&svar, "svar", "bar", "command line arguments")
@@ -232,12 +213,17 @@ func readArg() (string, int64, int64, int64) {
 	fmt.Println("dev:", *devPtr)
 	fmt.Println("concurrent:", *concurPtr)
 	fmt.Println("delay:", *delayPtr)
+	fmt.Println("info log on:", *logswitchPtr)
 	fmt.Println("tail:", flag.Args())
 
-	return *serverPtr, *devPtr, *concurPtr, *delayPtr
+	return *serverPtr, *devPtr, *concurPtr, *delayPtr, *logswitchPtr
 
 }
 
+/**
+Using user input to set option
+**/
+/*
 func readNumDevice() (string, int64, int64, time.Duration) {
 	var relay_addr = ""
 	var num_did int64 = 0
@@ -324,3 +310,4 @@ func readNumDevice() (string, int64, int64, time.Duration) {
 	}
 	return relay_addr, num_did, num_concur, delay
 }
+*/
